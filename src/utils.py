@@ -36,3 +36,4 @@ def evaluate_model(model, X_train, X_test, y_train, y_test):
     print("\nConfusion Matrix:")
     print(confusion_matrix(y_test, y_pred))
     print(f"\nROC-AUC Score: {roc_auc_score(y_test, y_proba):.4f}")
+

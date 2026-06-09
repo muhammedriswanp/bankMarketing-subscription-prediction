@@ -1,5 +1,5 @@
 from sklearn.pipeline import Pipeline
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import GridSearchCV
@@ -8,6 +8,14 @@ def baseline_model(preprocessor):
     return Pipeline([
         ("preprocessor", preprocessor),
         ("classifier", LogisticRegression(max_iter=1000, random_state=42, class_weight="balanced"))
+    ])
+
+logistic_regression_model = baseline_model
+
+def sgd_model(preprocessor):
+    return Pipeline([
+        ("preprocessor", preprocessor),
+        ("classifier", SGDClassifier(max_iter=1000, random_state=42, class_weight="balanced", loss="log_loss"))
     ])
 
 def decision_tree_model(preprocessor):

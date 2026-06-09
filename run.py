@@ -1,0 +1,119 @@
+import warnings
+import pandas as pd
+from pathlib import Path
+
+from sklearn.model_selection import cross_val_score
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    roc_auc_score,
+    confusion_matrix,
+)
+
+from src.preprocessing import build_preprocessor
+from src.model import (
+    baseline_model,
+    sgd_model,
+    decision_tree_model,
+    random_forest_model,
+    gradient_boosting_model,
+)
+from src.utils import load_data
+
+warnings.filterwarnings("ignore")
+
+
+def main():
+    DATA_DIR = Path(__file__).parent / "data"
+    TRAIN_PATH = DATA_DIR / "train.csv"
+    TEST_PATH = DATA_DIR / "test.csv"
+
+    print("=" * 70)
+    print("BANK MARKETING SUBSCRIPTION PREDICTION: Baseline & Linear Models")
+    print("=" * 70)
+
+    # ── 1. Load data ──────────────────────────────────────────────────────────
+    print("\n[1] Loading data...")
+    X_train, X_test, y_train, y_test = load_data(TRAIN_PATH, TEST_PATH)
+    print(f"    Train: {X_train.shape}  |  Test: {X_test.shape}")
+
+    # ── 2. Build preprocessor ─────────────────────────────────────────────────
+    print("\n[2] Building preprocessor...")
+    numeric_features = X_train.select_dtypes(include=["int64", "float64"]).columns.tolist()
+    categorical_features = X_train.select_dtypes(include=["object"]).columns.tolist()
+    preprocessor = build_preprocessor(numeric_features, categorical_features)
+    print(f"    Numeric: {len(numeric_features)}  |  Categorical: {len(categorical_features)}")
+
+    # ── 3. Define models ──────────────────────────────────────────────────────
+    models = {
+        "LogisticRegression (baseline)": baseline_model(preprocessor),
+        "SGDClassifier": sgd_model(preprocessor),
+        "DecisionTree": decision_tree_model(preprocessor),
+        "RandomForest + GridSearch": random_forest_model(preprocessor),
+        "GradientBoosting + GridSearch": gradient_boosting_model(preprocessor),
+    }
+
+    # ── 4. Train & evaluate ───────────────────────────────────────────────────
+    results = []
+    print("\n[3] Training & evaluating models...\n" + "-" * 70)
+
+    for name, model in models.items():
+        print(f"\n>>> {name}")
+        try:
+            model.fit(X_train, y_train)
+
+            if hasattr(model, "best_score_"):
+                cv_f1 = model.best_score_
+            else:
+                cv_f1 = cross_val_score(model, X_train, y_train, cv=5, scoring="f1").mean()
+
+            y_pred = model.predict(X_test)
+            y_proba = model.predict_proba(X_test)[:, 1]
+
+            acc = accuracy_score(y_test, y_pred)
+            prec = precision_score(y_test, y_pred)
+            rec = recall_score(y_test, y_pred)
+            f1 = f1_score(y_test, y_pred)
+            roc_auc = roc_auc_score(y_test, y_proba)
+
+            results.append(
+                {
+                    "Model": name,
+                    "CV F1": round(cv_f1, 4),
+                    "Accuracy": round(acc, 4),
+                    "Precision": round(prec, 4),
+                    "Recall": round(rec, 4),
+                    "F1": round(f1, 4),
+                    "ROC-AUC": round(roc_auc, 4),
+                }
+            )
+
+            tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+            print(f"    CV F1: {cv_f1:.4f}  |  Acc: {acc:.4f}  |  Prec: {prec:.4f}  |  Rec: {rec:.4f}  |  F1: {f1:.4f}  |  ROC-AUC: {roc_auc:.4f}")
+            print(f"    Confusion Matrix: TN={tn}  FP={fp}  FN={fn}  TP={tp}")
+
+            if hasattr(model, "best_params_"):
+                print(f"    Best params: {model.best_params_}")
+        except Exception as e:
+            print(f"    ERROR: {e}")
+            results.append({"Model": name, "CV F1": None, "Accuracy": None, "Precision": None, "Recall": None, "F1": None, "ROC-AUC": None})
+
+    # ── 5. Comparison table ───────────────────────────────────────────────────
+    print("\n" + "=" * 70)
+    print("MODEL COMPARISON SUMMARY")
+    print("=" * 70)
+    results_df = pd.DataFrame(results)
+    results_df = results_df.sort_values("F1", ascending=False).reset_index(drop=True)
+    print(results_df.to_string(index=False))
+
+    # ── 6. Save results ───────────────────────────────────────────────────────
+    output_dir = Path(__file__).parent / "output"
+    output_dir.mkdir(exist_ok=True)
+    results_df.to_csv(output_dir / "model_comparison.csv", index=False)
+    print(f"\nResults saved to output/model_comparison.csv")
+
+
+if __name__ == "__main__":
+    main()
