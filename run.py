@@ -1,5 +1,6 @@
 import warnings
 import pandas as pd
+import numpy as np
 from pathlib import Path
 
 from sklearn.model_selection import cross_val_score
@@ -11,18 +12,39 @@ from sklearn.metrics import (
     roc_auc_score,
     confusion_matrix,
 )
-
 from src.preprocessing import build_preprocessor
 from src.model import (
     baseline_model,
-    sgd_model,
     decision_tree_model,
     random_forest_model,
     gradient_boosting_model,
+    adaboost_model,
+    xgboost_model,
 )
 from src.utils import load_data
 
+DROP_FEATURES = ["duration"]
+
 warnings.filterwarnings("ignore")
+
+
+def get_feature_names(fitted_preprocessor, numeric_features, categorical_features):
+    num_names = numeric_features
+    cat_encoder = fitted_preprocessor.named_transformers_["cat"].named_steps["encoder"]
+    cat_names = cat_encoder.get_feature_names_out(categorical_features)
+    return np.concatenate([num_names, cat_names])
+
+
+def extract_feature_importance(model, feature_names, top_n=10):
+    if hasattr(model, "best_estimator_"):
+        model = model.best_estimator_
+    clf = model.named_steps["classifier"]
+    importances = clf.feature_importances_
+    indices = np.argsort(importances)[::-1]
+    print(f"    Top {top_n} features:")
+    for i in range(min(top_n, len(indices))):
+        print(f"      {i+1}. {feature_names[indices[i]]} ({importances[indices[i]]:.4f})")
+    return True
 
 
 def main():
@@ -31,7 +53,7 @@ def main():
     TEST_PATH = DATA_DIR / "test.csv"
 
     print("=" * 70)
-    print("BANK MARKETING SUBSCRIPTION PREDICTION: Baseline & Linear Models")
+    print("BANK MARKETING SUBSCRIPTION PREDICTION: Comparison of All Models")
     print("=" * 70)
 
     # ── 1. Load data ──────────────────────────────────────────────────────────
@@ -41,18 +63,21 @@ def main():
 
     # ── 2. Build preprocessor ─────────────────────────────────────────────────
     print("\n[2] Building preprocessor...")
-    numeric_features = X_train.select_dtypes(include=["int64", "float64"]).columns.tolist()
-    categorical_features = X_train.select_dtypes(include=["object"]).columns.tolist()
+    all_numeric = X_train.select_dtypes(include=["int64", "float64"]).columns.tolist()
+    all_categorical = X_train.select_dtypes(include=["object"]).columns.tolist()
+    numeric_features = [c for c in all_numeric if c not in DROP_FEATURES]
+    categorical_features = [c for c in all_categorical if c not in DROP_FEATURES]
     preprocessor = build_preprocessor(numeric_features, categorical_features)
     print(f"    Numeric: {len(numeric_features)}  |  Categorical: {len(categorical_features)}")
 
     # ── 3. Define models ──────────────────────────────────────────────────────
     models = {
         "LogisticRegression (baseline)": baseline_model(preprocessor),
-        "SGDClassifier": sgd_model(preprocessor),
         "DecisionTree": decision_tree_model(preprocessor),
         "RandomForest + GridSearch": random_forest_model(preprocessor),
         "GradientBoosting + GridSearch": gradient_boosting_model(preprocessor),
+        "AdaBoost + GridSearch": adaboost_model(preprocessor),
+        "XGBoost + GridSearch": xgboost_model(preprocessor),
     }
 
     # ── 4. Train & evaluate ───────────────────────────────────────────────────
@@ -113,6 +138,31 @@ def main():
     output_dir.mkdir(exist_ok=True)
     results_df.to_csv(output_dir / "model_comparison.csv", index=False)
     print(f"\nResults saved to output/model_comparison.csv")
+
+    # ── 7. Feature Importance ─────────────────────────────────────────────────
+    print("\n" + "=" * 70)
+    print("FEATURE IMPORTANCE (Tree-Based Models)")
+    print("=" * 70)
+
+    # Fit a preprocessor just to extract feature names
+    preprocessor.fit(X_train, y_train)
+    feature_names = get_feature_names(preprocessor, numeric_features, categorical_features)
+
+    tree_models = {
+        "DecisionTree": decision_tree_model(preprocessor),
+        "RandomForest + GridSearch": random_forest_model(preprocessor),
+        "GradientBoosting + GridSearch": gradient_boosting_model(preprocessor),
+        "AdaBoost + GridSearch": adaboost_model(preprocessor),
+        "XGBoost + GridSearch": xgboost_model(preprocessor),
+    }
+
+    for name, model in tree_models.items():
+        print(f"\n>>> {name}")
+        try:
+            model.fit(X_train, y_train)
+            extract_feature_importance(model, feature_names)
+        except Exception as e:
+            print(f"    ERROR: {e}")
 
 
 if __name__ == "__main__":
