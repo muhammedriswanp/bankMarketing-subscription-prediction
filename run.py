@@ -35,18 +35,6 @@ def get_feature_names(fitted_preprocessor, numeric_features, categorical_feature
     return np.concatenate([num_names, cat_names])
 
 
-def extract_feature_importance(model, feature_names, top_n=10):
-    if hasattr(model, "best_estimator_"):
-        model = model.best_estimator_
-    clf = model.named_steps["classifier"]
-    importances = clf.feature_importances_
-    indices = np.argsort(importances)[::-1]
-    print(f"    Top {top_n} features:")
-    for i in range(min(top_n, len(indices))):
-        print(f"      {i+1}. {feature_names[indices[i]]} ({importances[indices[i]]:.4f})")
-    return True
-
-
 def main():
     DATA_DIR = Path(__file__).parent / "data"
     TRAIN_PATH = DATA_DIR / "train.csv"
@@ -82,6 +70,8 @@ def main():
 
     # ── 4. Train & evaluate ───────────────────────────────────────────────────
     results = []
+    best_model = None
+    best_f1 = 0
     print("\n[3] Training & evaluating models...\n" + "-" * 70)
 
     for name, model in models.items():
@@ -114,6 +104,10 @@ def main():
                     "ROC-AUC": round(roc_auc, 4),
                 }
             )
+
+            if f1 > best_f1:
+                best_f1 = f1
+                best_model = model
 
             tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
             print(f"    CV F1: {cv_f1:.4f}  |  Acc: {acc:.4f}  |  Prec: {prec:.4f}  |  Rec: {rec:.4f}  |  F1: {f1:.4f}  |  ROC-AUC: {roc_auc:.4f}")
@@ -160,10 +154,26 @@ def main():
         print(f"\n>>> {name}")
         try:
             model.fit(X_train, y_train)
-            extract_feature_importance(model, feature_names)
+            clf = model.best_estimator_.named_steps["classifier"] if hasattr(model, "best_estimator_") else model.named_steps["classifier"]
+            importances = clf.feature_importances_
+            indices = np.argsort(importances)[::-1]
+            print(f"    Top 5 features:")
+            for i in range(min(5, len(indices))):
+                print(f"      {i+1}. {feature_names[indices[i]]} ({importances[indices[i]]:.4f})")
+            
         except Exception as e:
             print(f"    ERROR: {e}")
 
+    # ── 8. Save final model ────────────────────────────────────────────────────
+    print("\n" + "=" * 70)
+    print("SAVING BEST MODEL (no retraining)")
+    print("=" * 70)
+    from joblib import dump
+    if hasattr(best_model, "best_estimator_"):
+        dump(best_model.best_estimator_, "model.pkl")
+    else:
+        dump(best_model, "model.pkl")
+    print(f"Saved model.pkl (best model: F1 = {best_f1:.4f})")
 
 if __name__ == "__main__":
     main()
