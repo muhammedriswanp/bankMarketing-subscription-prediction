@@ -94,6 +94,16 @@ These features were also highlighted during EDA and remained important after mod
 └── README.md
 ```
 
+## Streamlit App
+
+### Home Page
+
+![Home Page](assets/home.png)
+
+### Prediction Example
+
+![Prediction Example](assets/prediction.png)
+
 ## Setup & Run
 
 ```bash

@@ -72,6 +72,9 @@ def main():
     results = []
     best_model = None
     best_f1 = 0
+    best_model_name = ""
+    best_tree_model = None
+    best_tree_f1 = 0
     print("\n[3] Training & evaluating models...\n" + "-" * 70)
 
     for name, model in models.items():
@@ -105,9 +108,16 @@ def main():
                 }
             )
 
-            if f1 > best_f1:
-                best_f1 = f1
+            if cv_f1 > best_f1:
+                best_f1 = cv_f1
                 best_model = model
+                best_model_name = name
+
+            if hasattr(model, "best_estimator_"):
+                inner_clf = model.best_estimator_.named_steps["classifier"]
+                if hasattr(inner_clf, "feature_importances_") and cv_f1 > best_tree_f1:
+                    best_tree_f1 = cv_f1
+                    best_tree_model = model
 
             tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
             print(f"    CV F1: {cv_f1:.4f}  |  Acc: {acc:.4f}  |  Prec: {prec:.4f}  |  Rec: {rec:.4f}  |  F1: {f1:.4f}  |  ROC-AUC: {roc_auc:.4f}")
@@ -133,36 +143,23 @@ def main():
     results_df.to_csv(output_dir / "model_comparison.csv", index=False)
     print(f"\nResults saved to output/model_comparison.csv")
 
-    # ── 7. Feature Importance ─────────────────────────────────────────────────
+    # ── 7. Feature Importance (Best Tree-Based Model) ──────────────────────────
     print("\n" + "=" * 70)
-    print("FEATURE IMPORTANCE (Tree-Based Models)")
+    print("FEATURE IMPORTANCE (BEST TREE-BASED MODEL)")
     print("=" * 70)
 
-    # Fit a preprocessor just to extract feature names
     preprocessor.fit(X_train, y_train)
     feature_names = get_feature_names(preprocessor, numeric_features, categorical_features)
 
-    tree_models = {
-        "DecisionTree": decision_tree_model(preprocessor),
-        "RandomForest + GridSearch": random_forest_model(preprocessor),
-        "GradientBoosting + GridSearch": gradient_boosting_model(preprocessor),
-        "AdaBoost + GridSearch": adaboost_model(preprocessor),
-        "XGBoost + GridSearch": xgboost_model(preprocessor),
-    }
-
-    for name, model in tree_models.items():
-        print(f"\n>>> {name}")
-        try:
-            model.fit(X_train, y_train)
-            clf = model.best_estimator_.named_steps["classifier"] if hasattr(model, "best_estimator_") else model.named_steps["classifier"]
-            importances = clf.feature_importances_
-            indices = np.argsort(importances)[::-1]
-            print(f"    Top 5 features:")
-            for i in range(min(5, len(indices))):
-                print(f"      {i+1}. {feature_names[indices[i]]} ({importances[indices[i]]:.4f})")
-            
-        except Exception as e:
-            print(f"    ERROR: {e}")
+    if best_tree_model is not None:
+        clf = best_tree_model.best_estimator_.named_steps["classifier"]
+        importances = clf.feature_importances_
+        indices = np.argsort(importances)[::-1]
+        print("Top 5 features:")
+        for i in range(min(5, len(indices))):
+            print(f"  {i+1}. {feature_names[indices[i]]} ({importances[indices[i]]:.4f})")
+    else:
+        print("No tree-based model available for feature importance.")
 
     # ── 8. Save final model ────────────────────────────────────────────────────
     print("\n" + "=" * 70)
@@ -173,7 +170,7 @@ def main():
         dump(best_model.best_estimator_, "model.pkl")
     else:
         dump(best_model, "model.pkl")
-    print(f"Saved model.pkl (best model: F1 = {best_f1:.4f})")
+    print(f"Saved model.pkl (best model: {best_model_name}, F1 = {best_f1:.4f})")
 
 if __name__ == "__main__":
     main()
